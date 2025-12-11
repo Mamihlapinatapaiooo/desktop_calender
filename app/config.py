@@ -1,0 +1,11 @@
+# app/config.py
+
+# --- 配色方案 (北欧冷淡风) ---
+THEME_GRADIENT_START = "#667eea"
+THEME_GRADIENT_END = "#764ba2"
+BG_COLOR = "#FFFFFF"
+TEXT_PRIMARY = "#2D3748"
+TEXT_SECONDARY = "#A0AEC0"
+ACCENT_COLOR = "#667eea"
+DANGER_COLOR = "#e53e3e"
+CARD_BG = "#F7FAFC"

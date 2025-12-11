@@ -1,0 +1,10 @@
+# 忽略打包生成的文件夹
+build/
+dist/
+__pycache__/
+
+# 忽略 VS Code 配置 (因人而异，通常不需要上传)
+.vscode/
+
+# 忽略 Python 编译文件
+*.pyc
