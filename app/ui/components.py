@@ -1,10 +1,10 @@
 # app/ui/components.py
-from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QLabel, QCalendarWidget)
-from PyQt6.QtCore import Qt, QPoint, QPointF, QRect
-from PyQt6.QtGui import QColor, QPainter, QPen
+from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QLabel, QCalendarWidget, QPushButton, QGraphicsOpacityEffect,QSizePolicy)
+from PyQt6.QtCore import Qt, QPoint, QPointF, QRect, QPropertyAnimation, QEasingCurve, QSize, pyqtProperty
+from PyQt6.QtGui import QColor, QPainter, QPen, QCursor, QFont
 from app.config import *
 
-# --- 1. 纯手绘极简复选框 ---
+# --- 1. 纯手绘极简复选框 (保持不变) ---
 class CustomCheckButton(QWidget):
     def __init__(self, checked=False, size=22, parent=None):
         super().__init__(parent)
@@ -40,13 +40,16 @@ class CustomCheckButton(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
         rect = self.rect()
-        margin = 2
+        margin = 3
         draw_rect = rect.adjusted(margin, margin, -margin, -margin)
         
         active_color = QColor(ACCENT_COLOR)
         border_color = QColor("#CBD5E0")
         
         if self._checked:
+            adjust = margin - 1 
+            draw_rect = rect.adjusted(adjust, adjust, -adjust, -adjust)
+
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(active_color)
             painter.drawEllipse(draw_rect)
@@ -71,63 +74,127 @@ class CustomCheckButton(QWidget):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawEllipse(draw_rect)
 
-# --- 2. 任务列表项组件 ---
+# --- 2. 任务列表项组件 (修复版) ---
 class TaskItemWidget(QWidget):
-    def __init__(self, task_data, on_toggle_callback):
+    def __init__(self, task_data, on_toggle_callback, on_delete_callback):
         super().__init__()
         self.task_data = task_data
         self.on_toggle_callback = on_toggle_callback
-        self.setStyleSheet("background: transparent;")
+        self.on_delete_callback = on_delete_callback
+
+        # 整体圆角
+        self.setStyleSheet(f"""
+            TaskItemWidget {{
+                background-color: transparent;
+                border-radius: 8px; 
+            }}
+            TaskItemWidget:hover {{
+                 background-color: #F7FAFC;
+            }}
+        """)
         
-        layout = QHBoxLayout()
-        layout.setContentsMargins(10, 5, 10, 5)
-        layout.setSpacing(12)
-        self.setLayout(layout)
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # --- 左侧内容 ---
+        content_widget = QWidget()
+        content_widget.setStyleSheet("background: transparent; border-radius: 8px;")
+        content_layout = QHBoxLayout(content_widget)
+        content_layout.setContentsMargins(10, 5, 10, 5) 
+        content_layout.setSpacing(12)
 
         self.checkbox = CustomCheckButton(checked=task_data.get('completed', False))
         self.checkbox.clicked = self.on_checkbox_clicked
         
         self.lbl = QLabel(task_data.get('text', ''))
         self.lbl.setWordWrap(True)
-        self.lbl.setContentsMargins(0, 0, 0, 0)
+        self.lbl.setStyleSheet("background: transparent; border: none;")
         
+        content_layout.addWidget(self.checkbox, 0, Qt.AlignmentFlag.AlignVCenter)
+        content_layout.addWidget(self.lbl, 1, Qt.AlignmentFlag.AlignVCenter)
+
+        # --- 右侧删除按钮 ---
+        self.del_btn = QPushButton("🗑 删除") # 加了文字，看起来更正式，如果不想要文字可以删掉
+        self.del_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        
+        # 【核心修复】：水平 Fixed (听指挥)，垂直 Expanding (填满高度)
+        self.del_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        
+        self.del_btn.setMaximumWidth(0) # 初始隐藏
+        
+        # 样式优化：文字居中，图标和文字有间隔
+        self.del_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #E53E3E; 
+                color: white; 
+                border: none; 
+                border-top-right-radius: 8px;     
+                border-bottom-right-radius: 8px;  
+                margin-left: 10px;
+                font-size: 14px;
+                font-weight: bold;
+                padding-left: 5px;
+                padding-right: 5px;
+            }
+            QPushButton:hover {
+                background-color: #C53030;
+            }
+        """)
+        self.del_btn.clicked.connect(self.on_delete_callback)
+
         self.update_style()
 
-        layout.addWidget(self.checkbox, 0, Qt.AlignmentFlag.AlignVCenter)
-        layout.addWidget(self.lbl, 1, Qt.AlignmentFlag.AlignVCenter)
+        main_layout.addWidget(content_widget, 1)
+        main_layout.addWidget(self.del_btn) # 这里不需要再设 AlignStretch 了，SizePolicy 会搞定
+
+        # --- 动画设置 ---
+        
+        # 飞入
+        self.anim_in = QPropertyAnimation(self.del_btn, b"maximumWidth")
+        self.anim_in.setDuration(400)  # 400ms 比较丝滑
+        self.anim_in.setStartValue(0)
+        self.anim_in.setEndValue(90)   # 90px 宽度，足够放下图标和文字
+        self.anim_in.setEasingCurve(QEasingCurve.Type.OutCubic) # 使用 OutCubic 曲线
+
+        # 飞出
+        self.anim_out = QPropertyAnimation(self.del_btn, b"maximumWidth")
+        self.anim_out.setDuration(300)
+        self.anim_out.setEndValue(0)
+        self.anim_out.setEasingCurve(QEasingCurve.Type.InCubic)
 
     def update_style(self):
         is_completed = self.checkbox.isChecked()
+        base_style = "background: transparent; border: none; font-family: 'Microsoft YaHei UI', sans-serif;"
         if is_completed:
-            self.lbl.setStyleSheet(f"""
-                color: {TEXT_SECONDARY}; 
-                background: transparent;
-                font-family: "Microsoft YaHei UI", sans-serif;
-                font-size: 14px; 
-                text-decoration: line-through;
-            """)
+            self.lbl.setStyleSheet(base_style + f"color: {TEXT_SECONDARY}; font-size: 15px; text-decoration: line-through;")
         else:
-            self.lbl.setStyleSheet(f"""
-                color: {TEXT_PRIMARY}; 
-                background: transparent;
-                font-family: "Microsoft YaHei UI", sans-serif;
-                font-size: 15px;
-                font-weight: 500;
-                line-height: 1.2;
-            """)
+            self.lbl.setStyleSheet(base_style + f"color: {TEXT_PRIMARY}; font-size: 15px; font-weight: 500; line-height: 1.2;")
 
     def on_checkbox_clicked(self):
         self.update_style()
         self.on_toggle_callback()
 
-# --- 3. 极简日历 (修复选中样式) ---
+    def enterEvent(self, event):
+        self.anim_out.stop()
+        self.anim_in.start()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.anim_in.stop()
+        self.anim_out.setStartValue(self.del_btn.width())
+        self.anim_out.start()
+        super().leaveEvent(event)
+
+# --- 3. 极简日历 (保持不变) ---
 class CleanCalendar(QCalendarWidget):
+    # ... (保持你原来的代码不变) ...
     def __init__(self, task_manager):
         super().__init__()
         self.task_manager = task_manager
         self.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
         self.setGridVisible(False)
-        self.setNavigationBarVisible(True)
+        self.setNavigationBarVisible(False)
         
         self.setStyleSheet(f"""
             QCalendarWidget QWidget {{ alternate-background-color: {BG_COLOR}; background-color: {BG_COLOR}; }}
@@ -146,10 +213,7 @@ class CleanCalendar(QCalendarWidget):
             }}
             QCalendarWidget QAbstractItemView {{
                 font-size: 14px; color: {TEXT_PRIMARY}; 
-                
-                /* --- 核心修复：把默认的蓝色背景设为透明 --- */
                 selection-background-color: transparent; 
-                
                 selection-color: white; outline: none; border: none;
             }}
         """)
@@ -161,10 +225,6 @@ class CleanCalendar(QCalendarWidget):
         if is_selected:
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(ACCENT_COLOR))
-            
-            # --- 核心优化：绘制圆角矩形 ---
-            # adjusted(6,6,-6,-6) 是为了让背景比格子稍微小一圈，有留白
-            # 12, 12 是圆角的半径，数值越大越圆
             painter.drawRoundedRect(rect.adjusted(6, 6, -6, -6), 12, 12)
         
         painter.setPen(QColor("white") if is_selected else QColor(TEXT_PRIMARY))
@@ -177,5 +237,4 @@ class CleanCalendar(QCalendarWidget):
             dot_color = QColor("white") if is_selected else QColor(DANGER_COLOR)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(dot_color)
-            # 计算小圆点位置
             painter.drawEllipse(QPoint(int(rect.center().x()), int(rect.bottom() - 8)), 2, 2)
